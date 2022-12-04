@@ -1,52 +1,61 @@
 package com.example.notaaplicacion
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.*
 import android.content.ContentValues
 import android.content.Context
+import android.content.DialogInterface
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import android.widget.ImageView
+import android.widget.MediaController
 import android.widget.Toast
 import androidx.activity.result.ActivityResult
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import androidx.core.content.PackageManagerCompat.LOG_TAG
 import com.example.notaaplicacion.Model.Nota
 import com.example.notaaplicacion.databinding.ActivityAgregarNotaBinding
-import com.example.notaaplicacion.databinding.ActivityMainBinding
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.File
 import java.io.IOException
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.*
-import java.util.jar.Manifest
-import java.util.logging.SimpleFormatter
 
 class agregarNota : AppCompatActivity() {
 
-    lateinit var recorder: MediaRecorder
-    lateinit var player: MediaPlayer
-    lateinit var archivo: File
     private lateinit var binding: ActivityAgregarNotaBinding
     private lateinit var nota : Nota
     private lateinit var oldNota: Nota
     var updateNot = false
-    lateinit var mr : MediaRecorder
     val chanelID = "chat"
     val chanelName = "chat"
-
+    lateinit var currentVideoPath: String
+    lateinit var photoURI: Uri
+    lateinit var mediaController: MediaController
+    lateinit var requestPermissionLauncher: ActivityResultLauncher<String>
+    private var mStartRecording: Boolean = true
+    private var fileName: String = ""
+    private var recorder: MediaRecorder? = null
+    private var player: MediaPlayer? = null
 
     @RequiresApi(Build.VERSION_CODES.M)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,16 +63,16 @@ class agregarNota : AppCompatActivity() {
         binding = ActivityAgregarNotaBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-
-        var path : String = Environment.getExternalStorageDirectory().toString()+"/miadudio.3gp"
-        mr = MediaRecorder()
-        binding.btnAudioparar.isEnabled = false
+        binding.videoView.setOnClickListener { mediaController.show() }
+        mediaController = MediaController(this)
+        mediaController.setAnchorView(
+            binding.root);
+        binding.videoView.setMediaController(mediaController)
 
         if(ActivityCompat.checkSelfPermission(this,android.Manifest.permission.RECORD_AUDIO)!= PackageManager.PERMISSION_GRANTED)
             ActivityCompat.requestPermissions(this, arrayOf(android.Manifest.permission.RECORD_AUDIO,
             android.Manifest.permission.WRITE_EXTERNAL_STORAGE),111)
 
-        binding.btnAudioparar.isEnabled = true
 
         try {
             oldNota = intent.getSerializableExtra("Nota_Actual") as Nota
@@ -111,7 +120,7 @@ class agregarNota : AppCompatActivity() {
             }
 
             val notificacion = NotificationCompat.Builder(this,chanelID).also { noti->
-                noti.setContentTitle(binding.Nombre.text.toString())
+                noti.setContentTitle("Nueva nota agregada: "+binding.Nombre.text.toString())
                 noti.setContentText(binding.descripcionota.text.toString())
                 noti.setSmallIcon(R.drawable.imgnoti)
             }.build()
@@ -127,38 +136,104 @@ class agregarNota : AppCompatActivity() {
 
         binding.btnAgregar.setOnClickListener {
             startForResult.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE))
+    /*        Intent(MediaStore.ACTION_IMAGE_CAPTURE).also { takePictureIntent ->
+                takePictureIntent.resolveActivity(packageManager)?.also {
+
+                    // Create the File where the photo should go
+                    val photoFile: File? = try {
+                        createImageFile()
+                    } catch (ex: IOException) {
+                        // Error occurred while creating the File
+                        null
+                    }
+
+                    // Continue only if the File was successfully created
+                    photoFile?.also {
+                        photoURI = FileProvider.getUriForFile(
+                            this,
+                            "com.example.notaaplicacion.fileprovider",
+                            it
+                        )
+                        takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI)
+                        startActivityForResult(takePictureIntent, REQUEST_IMAGE_CAPTURE)
+                    }
+                }
+
+            } */
         }
+
+        binding.btnVideos.setOnClickListener {
+            var i = Intent(MediaStore.ACTION_VIDEO_CAPTURE)
+            startActivityForResult(i,1111)
+        }
+     /*       Intent(MediaStore.ACTION_VIDEO_CAPTURE).also { takeVideoIntent ->
+                takeVideoIntent.resolveActivity(packageManager)?.also {
+
+                    // Create the File where the photo should go
+                    val videoFile: File? = try {
+                        createImageFile()
+                    } catch (ex: IOException) {
+                        // Error occurred while creating the File
+
+                        null
+                    }
+
+                    // Continue only if the File was successfully created
+                    videoFile?.also {
+                        photoURI = FileProvider.getUriForFile(
+                            this,
+                            "com.example.notaaplicacion.fileprovider",
+                            it
+                        )
+                        takeVideoIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI)
+                        startActivityForResult(takeVideoIntent, REQUEST_VIDEO_CAPTURE)
+                    }
+                }
+            }
+        } */
 
         binding.btnAudios.setOnClickListener {
-            mr.setAudioSource(MediaRecorder.AudioSource.MIC)
-            mr.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
-            mr.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
-            mr.setOutputFile(path)
-            mr.prepare()
-            mr.start()
-
+            grabar()
+            onRecord(mStartRecording)
+            binding.btnAudios.text = when (mStartRecording) {
+                true -> "Stop recording"
+                false -> "Start recording"
+            }
+            mStartRecording = !mStartRecording
         }
 
-        binding.btnAudioparar.setOnClickListener {
-            mr.stop()
-        }
+        iniUI()
 
         binding.btnAudioescuchar.setOnClickListener {
-            var mp = MediaPlayer()
-            mp.setDataSource(path)
-            mp.prepare()
-            mp.start()
-
+            onPlay(mStartPlaying)
+            binding.btnAudioescuchar.text = when (mStartPlaying) {
+                true -> "Stop playing"
+                false -> "Start playing"
+            }
+            mStartPlaying = !mStartPlaying
         }
 
     }
 
+/*
+    lateinit var currentPhotoPath: String
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if(requestCode==111 && grantResults[0]==PackageManager.PERMISSION_GRANTED)
-            binding.btnAudioparar.isEnabled = true
-    }
+    @Throws(IOException::class)
+    fun createImageFile(): File {
+        // Create an image file name
+        val timeStamp: String = SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())
+        //val storageDir: File? = getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+        val storageDir: File? = filesDir
+        return File.createTempFile(
+            "JPEG_${timeStamp}_", /* prefix */
+            ".jpg", /* suffix */
+            storageDir /* directory */
+        ).apply {
+            // Save a file: path for use with ACTION_VIEW intents
+            currentPhotoPath = absolutePath
+            currentVideoPath = absolutePath
+        }
+    } */
 
     private val startForResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()){
             result: ActivityResult ->
@@ -170,40 +245,151 @@ class agregarNota : AppCompatActivity() {
         }
     }
 
-    private fun saveToGallery(){
-        val content = createContent()
-        val uri = save(content)
-        Toast.makeText(this, getString(R.string.imagen_saved), Toast.LENGTH_LONG).show()
-    }
-
-
-    private fun save(content: ContentValues): Uri {
-        var outputStream : OutputStream?
-        var uri:Uri?
-        application.contentResolver.also { resolver ->
-            uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, content)
-            outputStream = resolver.openOutputStream(uri!!)
-        }
-        outputStream.use { output ->
-            val imageBitmap = intent?.extras?.get("data") as Bitmap
-            val imageview = findViewById<ImageView>(R.id.imageView)
-            imageview.setImageBitmap(imageBitmap)
-            imageBitmap.compress(Bitmap.CompressFormat.JPEG, 100,output)
-        }
-        return uri!!
-    }
-
-    private fun createContent(): ContentValues {
-        val fileName = binding.Nombre.text.toString()
-        val fileType = "image.jpg"
-        return ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-            put(MediaStore.Files.FileColumns.MIME_TYPE, fileType)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
-            put(MediaStore.MediaColumns.IS_PENDING,1)
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 1111) {
+            binding.videoView.setVideoURI(data?.data)
+            binding.videoView.start()
         }
 
     }
 
+    var mStartPlaying = true
+
+    private fun iniUI() {
+        binding.btnAudios.text = "Start recording"
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    private fun grabar() {
+        revisarPermisos()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    private fun revisarPermisos() {
+        when {
+            ContextCompat.checkSelfPermission(
+                applicationContext,
+                "android.permission.RECORD_AUDIO"
+            ) == PackageManager.PERMISSION_GRANTED -> {
+                // You can use the API that requires the permission.
+
+            }
+            shouldShowRequestPermissionRationale("android.permission.RECORD_AUDIO") -> {
+                // In an educational UI, explain to the user why your app requires this
+                // permission for a specific feature to behave as expected. In this UI,
+                // include a "cancel" or "no thanks" button that allows the user to
+                // continue using your app without granting the permission.
+                //showInContextUI(...)
+                //Toast.makeText(applicationContext, "Debes dar perimso para grabar audios", Toast.LENGTH_SHORT).show()
+                MaterialAlertDialogBuilder(this
+                )
+                    .setTitle("Title")
+                    .setMessage("Debes dar perimso para grabar audios")
+                    .setNegativeButton("Cancel") { dialog, which ->
+                        // Respond to negative button press
+                    }
+                    .setPositiveButton("OK") { dialog, which ->
+                        // Respond to positive button press
+                        /*requestPermissionLauncher.launch(
+                            "android.permission.RECORD_AUDIO")*/
+
+                        // You can directly ask for the permission.
+                        requestPermissions(
+                            arrayOf("android.permission.RECORD_AUDIO",
+                                "android.permission.WRITE_EXTERNAL_STORAGE"),
+                            1001)
+
+                    }
+                    .show()
+            }
+            else -> {
+                // You can directly ask for the permission.
+                // The registered ActivityResultCallback gets the result of this request.
+                /*requestPermissionLauncher.launch(
+                    "android.permission.RECORD_AUDIO")*/
+                requestPermissions(
+                    arrayOf("android.permission.RECORD_AUDIO",
+                        "android.permission.WRITE_EXTERNAL_STORAGE"),
+                    1001)
+            }
+        }
+    }
+
+    private fun onRecord(start: Boolean) = if (start) {
+        iniciarGraabacion()
+    } else {
+        stopRecording()
+    }
+
+    @SuppressLint("RestrictedApi")
+    private fun iniciarGraabacion() {
+        recorder = MediaRecorder().apply {
+            setAudioSource(MediaRecorder.AudioSource.MIC)
+            setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
+            createAudioFile()
+            setOutputFile(fileName)
+            setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
+
+            try {
+                prepare()
+            } catch (e: IOException) {
+                Log.e(LOG_TAG, "prepare() failed")
+            }
+
+            start()
+        }
+    }
+
+    private fun stopRecording() {
+        recorder?.apply {
+            stop()
+            release()
+        }
+        recorder = null
+    }
+
+
+    @Throws(IOException::class)
+    fun createAudioFile(): File {
+        // Create an image file name
+        val timeStamp: String = SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())
+        val storageDir: File? =
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+        //val storageDir: File? = filesDir
+        return File.createTempFile(
+            "AUDIO_${timeStamp}_", /* prefix */
+            ".mp3", /* suffix */
+            storageDir /* directory */
+        ).apply {
+            // Save a file: path for use with ACTION_VIEW intents
+            fileName = absolutePath
+
+        }
+    }
+
+    private fun onPlay(start: Boolean) = if (start) {
+        startPlaying()
+    } else {
+        stopPlaying()
+    }
+
+    private fun stopPlaying() {
+        player?.release()
+        player = null
+    }
+
+    @SuppressLint("RestrictedApi")
+    private fun startPlaying() {
+        player = MediaPlayer().apply {
+            try {
+                setDataSource(fileName)
+                prepare()
+                start()
+            } catch (e: IOException) {
+                Log.e(LOG_TAG, "prepare() failed")
+            }
+        }
+    }
 
 }
